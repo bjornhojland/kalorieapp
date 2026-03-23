@@ -6,3 +6,9 @@ export default defineConfig({
   base: '/kalorieapp/',
 })
 ```
+
+Gem, og kør:
+```
+git add vite.config.js
+git commit -m "Fix vite config"
+git push
