@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from "react";
-import { useState, useRef, useEffect } from "react";
 
-// 🔑 API-nøgle fra env (IKKE hardcoded!)
+// 🔑 API-nøgle fra env
 const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
 
 const ACTIVITY = {
