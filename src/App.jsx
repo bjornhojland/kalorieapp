@@ -1,8 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 
-// 🔑 API-nøgle fra env
-const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY;
-
 const ACTIVITY = {
   "Stillesiddende": 1.2, "Let aktiv": 1.375,
   "Moderat aktiv": 1.55, "Meget aktiv": 1.725,
@@ -77,8 +74,8 @@ export default function App() {
   const [newWeight, setNewWeight] = useState("");
   const [editProfile, setEditProfile] = useState(false);
   const [showExercise, setShowExercise] = useState(false);
-  const [exMinutes, setExMinutes] = useState(60);
-  const [exIntensity, setExIntensity] = useState("Moderat");
+  const [exMinutes, setExMinutes] = useState("");
+  const [exIntensity, setExIntensity] = useState("");
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [showSavedMeals, setShowSavedMeals] = useState(false);
@@ -91,7 +88,7 @@ export default function App() {
   const totalCals = entries.reduce((s, e) => s + e.calories, 0);
   const totalExCals = exercise.reduce((s, e) => s + e.calories, 0);
   const remaining = goalCals + totalExCals - totalCals;
-  const progress = Math.min((totalCals / (goalCals + totalExCals)) * 100, 100);
+  const progress = Math.min((totalCals / (goalCals + totalExCals || 1)) * 100, 100);
   const weeks = weeksToGoal(profile.weight, profile.targetWeight, profile.pace);
   const arrival = estimatedDate(weeks);
   const totalProtein = entries.reduce((s, e) => s + (e.protein || 0), 0);
@@ -130,35 +127,18 @@ export default function App() {
     setAnalyzing(true); setError(null);
     try {
       const res = await fetch("/api/analyze", {
-        method: "POST", headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514", max_tokens: 1000,
-          messages: [{ role: "user", content: [
-            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: imageData } },
-            { type: "text", text: "Analyser denne mad og returner KUN et JSON-objekt uden markdown:\n{\"name\":\"Dansk navn\",\"calories\":450,\"protein\":25,\"carbs\":40,\"fat\":18,\"description\":\"1 saetning\",\"confidence\":\"hoej/medium/lav\"}\nVaer realistisk. Estimer generost ved tvivl." }
-          ]}]
-        })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageData })
       });
-      const data = await res.json();
-     const text = data.content.map(b => b.text || "").join("");
+      const parsed = await res.json();
+      if (parsed.error) throw new Error(parsed.error);
+      setAnalysisResult(parsed);
+      setCorrection("");
+    } catch (err) { setError("Kunne ikke analysere billedet. Prøv igen."); }
+    finally { setAnalyzing(false); }
+  };
 
-try {
-  const clean = text
-    .replace(/```json|```/g, "")
-    .trim()
-    .match(/\{[\s\S]*\}/)?.[0];
-
-  const parsed = JSON.parse(clean);
-  setAnalysisResult(parsed);
-  setCorrection("");
-
-} catch (e) {
-  console.error("Parse error:", text);
-  setError("Kunne ikke læse svaret fra AI");
-
-} finally {
-  setAnalyzing(false);
-}
   const confirmEntry = (result, img) => {
     if (!result) return;
     const entry = { id: Date.now(), time: new Date().toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" }), name: result.name, calories: result.calories, protein: result.protein || 0, carbs: result.carbs || 0, fat: result.fat || 0, description: result.description, image: img || null };
@@ -173,18 +153,16 @@ try {
     setCorrecting(true); setError(null);
     try {
       const res = await fetch("/api/analyze", {
-        method: "POST", headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514", max_tokens: 1000,
-          messages: [{ role: "user", content: [
-            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: imageData } },
-            { type: "text", text: "Tidligere analyse: " + JSON.stringify(analysisResult) + "\n\nRettelse: \"" + correction + "\"\n\nReturner KUN opdateret JSON uden markdown:\n{\"name\":\"navn\",\"calories\":0,\"protein\":0,\"carbs\":0,\"fat\":0,\"description\":\"1 saetning\",\"confidence\":\"hoej/medium/lav\"}" }
-          ]}]
+          imageData,
+          prompt: "Tidligere analyse: " + JSON.stringify(analysisResult) + "\n\nRettelse: \"" + correction + "\"\n\nReturner KUN opdateret JSON uden markdown:\n{\"name\":\"navn\",\"calories\":0,\"protein\":0,\"carbs\":0,\"fat\":0,\"description\":\"1 saetning\",\"confidence\":\"hoej/medium/lav\"}"
         })
       });
-      const data = await res.json();
-      const text = data.content.map(b => b.text || "").join("");
-      setAnalysisResult(JSON.parse(text.replace(/```json|```/g, "").trim()));
+      const parsed = await res.json();
+      if (parsed.error) throw new Error(parsed.error);
+      setAnalysisResult(parsed);
       setCorrection("");
       showToast("Analyse opdateret ✓");
     } catch { setError("Kunne ikke opdatere. Prøv igen."); }
@@ -211,8 +189,7 @@ try {
     const duration = exIntensity ? `${exIntensity} min` : "";
     setExercise(prev => [{ id: Date.now(), time: new Date().toLocaleTimeString("da-DK", { hour: "2-digit", minute: "2-digit" }), intensity: duration, calories: cals }, ...prev]);
     setShowExercise(false);
-    setExMinutes("");
-    setExIntensity("");
+    setExMinutes(""); setExIntensity("");
     showToast(`🚴 Zwift — ${cals} kcal forbrændt`);
   };
 
@@ -319,7 +296,6 @@ try {
       </div>
 
       <div style={{ padding: "16px 20px 100px" }}>
-
         {tab === "today" && (
           <div>
             <div style={{ background: "#161b22", border: "1px solid #21262d", borderRadius: 18, padding: 20, marginBottom: 12 }}>
@@ -380,12 +356,10 @@ try {
               {showExercise && (
                 <div style={{ marginTop: 14 }}>
                   <div style={{ fontSize: 11, color: "#8a9ba8", fontFamily: "system-ui", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>Kalorier fra Zwift</div>
-                  <p style={{ margin: "0 0 10px", fontFamily: "system-ui", fontSize: 13, color: "#8a9ba8", lineHeight: 1.5 }}>
-                    Find kalorietallet i Zwift-appen efter din tur og tast det ind her.
-                  </p>
+                  <p style={{ margin: "0 0 10px", fontFamily: "system-ui", fontSize: 13, color: "#8a9ba8", lineHeight: 1.5 }}>Find kalorietallet i Zwift-appen og tast det ind her.</p>
                   <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                    <input type="number" value={exMinutes} onChange={e => setExMinutes(parseFloat(e.target.value) || "")}
-                      placeholder="fx 650" style={{ flex: 1, background: "#0d1117", border: "1px solid #21262d", borderRadius: 10, padding: "12px 14px", color: "#e6edf3", fontSize: 16, fontFamily: "system-ui", outline: "none" }} />
+                    <input type="number" value={exMinutes} onChange={e => setExMinutes(e.target.value)} placeholder="fx 650"
+                      style={{ flex: 1, background: "#0d1117", border: "1px solid #21262d", borderRadius: 10, padding: "12px 14px", color: "#e6edf3", fontSize: 16, fontFamily: "system-ui", outline: "none" }} />
                     <span style={{ alignSelf: "center", color: "#8a9ba8", fontFamily: "system-ui" }}>kcal</span>
                   </div>
                   <div style={{ fontSize: 11, color: "#8a9ba8", fontFamily: "system-ui", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>Varighed (valgfrit)</div>
